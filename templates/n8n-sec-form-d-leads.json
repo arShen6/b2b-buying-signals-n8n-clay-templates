@@ -1,0 +1,219 @@
+{
+  "name": "Daily Newly Funded US Startups (SEC Form D) to Slack & Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily Newly Funded US Startups (SEC Form D)\n\n**What it does**: Every weekday at 8:00 AM, fetches newly filed SEC EDGAR Form D operating startup rounds (hedge funds, SPVs & M&A swaps auto-filtered, with verified company domains), skips empty weekend runs cleanly, logs leads to Google Sheets, and alerts Slack.\n\n**Setup (3 steps)**:\n1. Open **Fetch Fresh SEC Form D Startups** → create an **HTTP Header Auth** credential with Name `Authorization` and Value `Bearer <YOUR_APIFY_API_TOKEN>`.\n   *(Tip: You can also swap this HTTP Request node for the verified community node `@apify/n8n-nodes-apify`.)*\n2. Connect your **Google Sheets** spreadsheet & sheet tab (columns: `Filing Date`, `Company`, `Domain`, `Industry`, `Sold USD`, `Offering USD`, `Lead Exec`, `Title`, `Location`, `Phone`, `SEC URL`).\n3. Connect your **Slack** channel in **Post Funded Startup to Slack**.\n\n**Cost & Weekend Safety**:\n- Uses `daysBack: 3` + `deduplicateAcrossRuns: true` so Monday morning captures Friday's filings without double-billing.\n- Only qualified operating startups are billed (`funding-lead` event).",
+        "height": 340,
+        "width": 520,
+        "color": 4
+      },
+      "id": "sticky-setup-2",
+      "name": "Setup Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, -100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-2",
+      "name": "Weekday 8AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~sec-form-d-funding-leads/run-sync-get-dataset-items?maxTotalChargeUsd=1.00",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"daysBack\": 3,\n  \"excludeInvestmentFunds\": true,\n  \"excludeRealEstateAndFinance\": true,\n  \"excludeBusinessCombinations\": true,\n  \"onlyCorporations\": true,\n  \"minSoldUsd\": 500000,\n  \"enableDomainEnrichment\": true,\n  \"deduplicateAcrossRuns\": true,\n  \"dedupKey\": \"n8n-daily-form-d\",\n  \"maxResults\": 50\n}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "apify-run-actor-2",
+      "name": "Fetch Fresh SEC Form D Startups",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 320],
+      "notesInFlow": true,
+      "notes": "Auth: HTTP Header Auth -> Name: Authorization, Value: Bearer <YOUR_APIFY_TOKEN>"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-accession",
+              "leftValue": "={{ Boolean($json.accessionNumber && $json.companyName) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-non-empty-2",
+      "name": "Drop Empty Results",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [700, 320]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lead-location",
+              "name": "locationLabel",
+              "value": "={{ [$json.issuerCity, $json.issuerState].filter(Boolean).join(', ') || 'US' }}",
+              "type": "string"
+            },
+            {
+              "id": "lead-summary",
+              "name": "leadSummary",
+              "value": "={{ '*' + $json.companyName + '*' + ($json.companyDomain ? ' (' + $json.companyDomain + ')' : '') + ' — ' + ([$json.issuerCity, $json.issuerState].filter(Boolean).join(', ') || 'US') + ' | Sold: $' + Number($json.totalAmountSoldUsd || 0).toLocaleString('en-US') + ' / Offering: $' + Number($json.totalOfferingAmountUsd || 0).toLocaleString('en-US') + ' | Lead: ' + ($json.leadExecutiveName || 'N/A') + ' (' + ($json.leadExecutiveTitle || 'N/A') + ') | ' + ($json.secFilingUrl || '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "format-lead-2",
+      "name": "Format Funded Startup Lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [940, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Filing Date": "={{ $json.filingDate || '' }}",
+            "Company": "={{ $json.companyName || '' }}",
+            "Domain": "={{ $json.companyDomain || '' }}",
+            "Industry": "={{ $json.industryGroup || '' }}",
+            "Sold USD": "={{ $json.totalAmountSoldUsd ?? '' }}",
+            "Offering USD": "={{ $json.totalOfferingAmountUsd ?? '' }}",
+            "Lead Exec": "={{ $json.leadExecutiveName || '' }}",
+            "Title": "={{ $json.leadExecutiveTitle || '' }}",
+            "Location": "={{ $json.locationLabel }}",
+            "Phone": "={{ $json.issuerPhone || '' }}",
+            "SEC URL": "={{ $json.secFilingUrl || '' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-append-2",
+      "name": "Log Lead to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "<YOUR_SLACK_CHANNEL_ID>",
+          "mode": "id"
+        },
+        "text": "={{ $json.leadSummary }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notify-2",
+      "name": "Post Funded Startup to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1200, 420]
+    }
+  ],
+  "connections": {
+    "Weekday 8AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Fresh SEC Form D Startups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Fresh SEC Form D Startups": {
+      "main": [
+        [
+          {
+            "node": "Drop Empty Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop Empty Results": {
+      "main": [
+        [
+          {
+            "node": "Format Funded Startup Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Funded Startup Lead": {
+      "main": [
+        [
+          {
+            "node": "Log Lead to Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post Funded Startup to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

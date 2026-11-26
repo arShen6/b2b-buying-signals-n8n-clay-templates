@@ -1,0 +1,222 @@
+{
+  "name": "Daily Tech Hiring & Salary Signals to Slack & Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily Tech Hiring & Salary Signals (Greenhouse, Ashby & Lever)\n\n**What it does**: Runs every weekday at 9:00 AM, scans top AI/DevTools/Fintech/Security companies (or your own ABM `targetCompanyDomains`) for brand-new `$180K+` roles, deduplicates across runs so you never pay twice, logs jobs to Google Sheets, and alerts Slack.\n\n**Setup (3 steps)**:\n1. Open **Run Tech Hiring & Salary Radar** → create an **HTTP Header Auth** credential with Name `Authorization` and Value `Bearer <YOUR_APIFY_API_TOKEN>`.\n   *(Tip: You can also swap this node for the verified community node `@apify/n8n-nodes-apify`.)*\n2. Optional ABM mode: add `\"onlyCustomBoards\": true` and `\"targetCompanyDomains\": [\"linear.app\", \"posthog.com\"]` in the JSON body.\n3. Connect your **Google Sheets** spreadsheet & **Slack** channel on the two downstream nodes.\n\n**Built-in Safeguards**:\n- `deduplicateAcrossRuns: true` + `dateFilterField: \"postedAt\"` prevents duplicate alerts and duplicate billing.\n- Filter safely drops empty runs and honors single-bound salaries (`salaryMaxUsd ?? salaryMinUsd`).",
+        "height": 340,
+        "width": 520,
+        "color": 4
+      },
+      "id": "sticky-setup-1",
+      "name": "Setup Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, -100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-1",
+      "name": "Weekday 9AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~tech-hiring-salary-radar/run-sync-get-dataset-items?maxTotalChargeUsd=0.25",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"categories\": [\"ai\", \"devtools\", \"fintech\", \"security\"],\n  \"keywords\": [\"Security\", \"AI\", \"Sales\", \"Staff\"],\n  \"requireSalary\": true,\n  \"minSalaryUsd\": 180000,\n  \"postedWithinDays\": 3,\n  \"dateFilterField\": \"postedAt\",\n  \"deduplicateAcrossRuns\": true,\n  \"dedupKey\": \"n8n-daily-hiring\",\n  \"maxCompanies\": 30,\n  \"maxResults\": 100\n}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "apify-run-actor-1",
+      "name": "Run Tech Hiring & Salary Radar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 320],
+      "notesInFlow": true,
+      "notes": "Auth: HTTP Header Auth -> Name: Authorization, Value: Bearer <YOUR_APIFY_TOKEN>"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-job-key",
+              "leftValue": "={{ Boolean($json.jobKey && $json.title) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "high-comp-bound",
+              "leftValue": "={{ Number($json.salaryMaxUsd ?? $json.salaryMinUsd ?? 0) }}",
+              "rightValue": 180000,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-high-comp-1",
+      "name": "Drop Empty & Keep $180K+ Roles",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [700, 320]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "msg-field",
+              "name": "alertText",
+              "value": "={{ '[' + $json.company + '] ' + $json.title + ' (' + ($json.seniority || 'N/A') + ') | ' + ($json.salarySummary || 'Disclosed') + ' | ' + ($json.location || 'Unspecified') + ' | Signals: ' + (Array.isArray($json.hiringTriggerTags) && $json.hiringTriggerTags.length ? $json.hiringTriggerTags.join(', ') : 'general') + ' | ' + ($json.jobUrl || '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true
+      },
+      "id": "format-alert-1",
+      "name": "Format Hiring Signal",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [940, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Posted At": "={{ $json.postedAt || '' }}",
+            "Company": "={{ $json.company || '' }}",
+            "Domain": "={{ $json.companyDomain || '' }}",
+            "Title": "={{ $json.title || '' }}",
+            "Seniority": "={{ $json.seniority || '' }}",
+            "Salary": "={{ $json.salarySummary || '' }}",
+            "Min USD": "={{ $json.salaryMinUsd ?? '' }}",
+            "Max USD": "={{ $json.salaryMaxUsd ?? '' }}",
+            "Location": "={{ $json.location || '' }}",
+            "Buying Signals": "={{ Array.isArray($json.hiringTriggerTags) ? $json.hiringTriggerTags.join(', ') : '' }}",
+            "Job URL": "={{ $json.jobUrl || '' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-append-1",
+      "name": "Log Job Signal to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "<YOUR_SLACK_CHANNEL_ID>",
+          "mode": "id"
+        },
+        "text": "={{ $json.alertText }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notify-1",
+      "name": "Post Hiring Signal to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1200, 420]
+    }
+  ],
+  "connections": {
+    "Weekday 9AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Tech Hiring & Salary Radar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Tech Hiring & Salary Radar": {
+      "main": [
+        [
+          {
+            "node": "Drop Empty & Keep $180K+ Roles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop Empty & Keep $180K+ Roles": {
+      "main": [
+        [
+          {
+            "node": "Format Hiring Signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Hiring Signal": {
+      "main": [
+        [
+          {
+            "node": "Log Job Signal to Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post Hiring Signal to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

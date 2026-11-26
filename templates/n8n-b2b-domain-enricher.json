@@ -1,0 +1,193 @@
+{
+  "name": "Pre-Claygent B2B Domain Enricher (Contacts, Tech Stack & DACH Impressum)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Setup (2 minutes)\n1. Create an **HTTP Header Auth** credential with Header Name `Authorization` and Value `Bearer <YOUR_APIFY_API_TOKEN>`.\n2. Sync endpoint (`timeout=180&memory=512&maxTotalChargeUsd=1.00`) works best for **single-row Webhook calls (~2.5s)** or **small batches (<= 80 domains)**. For 100+ domains, switch to Apify's async Run Actor + Get Dataset Items endpoints.\n3. Piping from **Tech Hiring Radar**, **SEC Form D Leads**, or **Google News Signals**? Aggregate non-empty domains in one batch with: `{{ $input.all().map(i => i.json.companyDomain).filter(Boolean) }}`.\n4. Route ONLY `needsBrowserFallback === true` rows to Claygent/browser fallback — save ~89% of Claygent credits.",
+        "height": 220,
+        "width": 560
+      },
+      "id": "note-setup",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, 40]
+    },
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~b2b-domain-contact-tech-enricher/run-sync-get-dataset-items?timeout=180&memory=512&maxTotalChargeUsd=1.00",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"domains\": [\n    \"n8n.io\",\n    \"clerk.com\",\n    \"resend.com\",\n    \"cal.com\",\n    \"allbirds.com\"\n  ],\n  \"maxSubpagesPerDomain\": 3,\n  \"includeDachImpressum\": true,\n  \"includeSummary\": true\n}",
+        "options": {
+          "timeout": 200000
+        }
+      },
+      "id": "http-run-enricher",
+      "name": "Run B2B Domain Enricher (Apify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320],
+      "notesInFlow": true,
+      "notes": "Auth: HTTP Header Auth -> Name: Authorization, Value: Bearer <YOUR_APIFY_TOKEN>"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-enriched",
+              "leftValue": "={{ $json.enrichmentStatus }}",
+              "rightValue": "enriched",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-fallback-false",
+              "leftValue": "={{ $json.needsBrowserFallback }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-enriched-vs-fallback",
+      "name": "Enriched vs Needs Browser Fallback",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Enriched Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Domain": "={{ $json.domain }}",
+            "Best Email": "={{ $json.bestEmail || '' }}",
+            "Email Role": "={{ $json.bestEmailRole || '' }}",
+            "LinkedIn": "={{ $json.linkedinUrl || '' }}",
+            "Email Provider": "={{ $json.emailProvider || '' }}",
+            "DMARC Policy": "={{ $json.dmarcPolicy || '' }}",
+            "Tech Stack": "={{ ($json.techStackNames || []).join(', ') }}",
+            "Tag Manager IDs": "={{ ($json.tagManagerIds || []).join(', ') }}",
+            "Impressum Entity": "={{ $json.impressumLegalName || '' }}",
+            "Managing Director": "={{ $json.impressumManagingDirector || '' }}",
+            "VAT ID": "={{ $json.impressumVatId || '' }}",
+            "Summary": "={{ $json.companySummary || '' }}"
+          }
+        }
+      },
+      "id": "sheets-enriched",
+      "name": "Append to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-needs-fallback",
+              "leftValue": "={{ $json.needsBrowserFallback }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-true-fallback",
+      "name": "Route Only Blocked / JS-Shell to Claygent",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1040, 440]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run B2B Domain Enricher (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run B2B Domain Enricher (Apify)": {
+      "main": [
+        [
+          {
+            "node": "Enriched vs Needs Browser Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enriched vs Needs Browser Fallback": {
+      "main": [
+        [
+          {
+            "node": "Append to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route Only Blocked / JS-Shell to Claygent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

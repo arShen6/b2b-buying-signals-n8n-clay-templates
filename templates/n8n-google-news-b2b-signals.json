@@ -1,0 +1,258 @@
+{
+  "name": "Daily B2B Buying Signals (Google News) -> Contact & Tech Enricher -> Slack & Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily B2B Buying Signals (Google News) -> Auto-Enrich Contacts & Tech Stack\n\n**What it does**: Every weekday morning at 8:30 AM, monitors your target ABM accounts in Google News for brand-new B2B buying triggers (**funding, M&A, executive hires, expansion, partnerships**), decodes real publisher URLs (bypassing `news.google.com` redirects), deduplicates seen articles across runs (`$0` on repeats), enriches each triggered company's domain with clean business emails + 65+ tech stack signals + DACH Impressum, logs everything to Google Sheets, and alerts your sales team in Slack.\n\n**Setup (3 steps, ~2 minutes)**:\n1. Open **1. Monitor Account Buying Signals (Apify)** and **4. Enrich Triggered Domains (Apify)** -> create one **HTTP Header Auth** credential with Header Name `Authorization` and Value `Bearer <YOUR_APIFY_API_TOKEN>`.\n2. Edit the `companies` list in node **1** (`\"Company Name | domain.com\"`). Keep `deduplicateAcrossRuns: true` so you never get alerted or billed twice for yesterday's news.\n3. Connect your **Google Sheets** document and **Slack** channel on the two final nodes.\n\n**Built-in Cost Guardrails**:\n- Both Apify HTTP calls include `maxTotalChargeUsd=0.50` safety caps.\n- `deduplicateAcrossRuns: true` skips previously seen articles for `$0`.\n- Blocked/parked domains in step 4 are billed `$0` while still returning free DNS/MX/SPF/DMARC intelligence.",
+        "height": 380,
+        "width": 580,
+        "color": 4
+      },
+      "id": "sticky-setup-4",
+      "name": "Setup Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [160, -140]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-4",
+      "name": "Weekday 8:30AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [180, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~google-news-scraper-b2b-signals/run-sync-get-dataset-items?maxTotalChargeUsd=0.50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"companies\": [\n    \"Databricks | databricks.com\",\n    \"Stripe | stripe.com\",\n    \"Ramp | ramp.com\",\n    \"Celonis | celonis.com\",\n    \"Linear | linear.app\"\n  ],\n  \"maxItemsPerCompany\": 3,\n  \"triggerTypes\": [\n    \"funding\",\n    \"acquisition\",\n    \"exec_hire\",\n    \"expansion\",\n    \"partnership\"\n  ],\n  \"onlyBuyingSignals\": true,\n  \"deduplicateAcrossRuns\": true,\n  \"dedupKey\": \"n8n-daily-abm-signals\",\n  \"timeRange\": \"7d\",\n  \"decodeRealUrls\": true,\n  \"extractFullText\": false\n}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-actor4-news",
+      "name": "1. Monitor Account Buying Signals (Apify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 320],
+      "notesInFlow": true,
+      "notes": "Auth: HTTP Header Auth -> Authorization: Bearer <YOUR_APIFY_TOKEN>"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-trigger",
+              "leftValue": "={{ Boolean($json.articleId && $json.primaryTrigger) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-buying-signals-4",
+      "name": "2. Keep Brand-New Buying Triggers",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [680, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const signals = $input.all().map((item) => item.json);\nconst uniqueDomains = [...new Set(\n  signals\n    .map((s) => String(s.companyDomain || (Array.isArray(s.mentionedDomains) ? s.mentionedDomains[0] : '') || '').trim().toLowerCase())\n    .filter(Boolean)\n)];\nif (uniqueDomains.length === 0) return [];\nreturn [{ json: { domains: uniqueDomains } }];"
+      },
+      "id": "dedup-domains-4",
+      "name": "3. Deduplicate Triggered Domains",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~b2b-domain-contact-tech-enricher/run-sync-get-dataset-items?memory=512&maxTotalChargeUsd=0.50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ domains: $json.domains, maxSubpagesPerDomain: 3, includeDachImpressum: true, includeSummary: true }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-actor3-enrich",
+      "name": "4. Enrich Triggered Domains (Apify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 320],
+      "notesInFlow": true,
+      "notes": "Auth: Reuse the same Apify HTTP Header Auth credential"
+    },
+    {
+      "parameters": {
+        "jsCode": "const enrichedByDomain = new Map();\nfor (const item of $input.all()) {\n  const d = String(item.json.domain || item.json.inputDomain || '').trim().toLowerCase();\n  if (d) enrichedByDomain.set(d, item.json);\n}\n\nconst signalItems = $('2. Keep Brand-New Buying Triggers').all();\nreturn signalItems.map((sigItem) => {\n  const s = sigItem.json;\n  const dom = String(s.companyDomain || (Array.isArray(s.mentionedDomains) ? s.mentionedDomains[0] : '') || '').trim().toLowerCase();\n  const enr = enrichedByDomain.get(dom) || {};\n  const techStack = Array.isArray(enr.techStackNames) ? enr.techStackNames.slice(0, 8).join(', ') : '';\n  const slackAlert = [\n    `*[${String(s.primaryTrigger || 'signal').toUpperCase()}] ${s.matchedCompany || dom || 'Account'}*`,\n    `Headline: ${s.title || ''}`,\n    `Source: ${s.publisherName || 'News'} (${s.publishedAt ? String(s.publishedAt).slice(0, 10) : ''}) | ${s.url || s.googleNewsUrl || ''}`,\n    `Contact: ${enr.bestEmail || 'N/A'} | LinkedIn: ${enr.linkedinUrl || 'N/A'} | Provider: ${enr.emailProvider || 'N/A'}`,\n    techStack ? `Tech Stack: ${techStack}` : null,\n    s.icebreakerSnippet ? `Icebreaker: ${s.icebreakerSnippet}` : null\n  ].filter(Boolean).join('\\n');\n\n  return {\n    json: {\n      publishedAt: s.publishedAt || '',\n      company: s.matchedCompany || '',\n      domain: dom,\n      primaryTrigger: s.primaryTrigger || '',\n      signalConfidence: s.signalConfidence ?? '',\n      headline: s.title || '',\n      publisher: s.publisherName || '',\n      realUrl: s.url || s.googleNewsUrl || '',\n      bestEmail: enr.bestEmail || '',\n      linkedinUrl: enr.linkedinUrl || '',\n      emailProvider: enr.emailProvider || '',\n      techStack,\n      impressumDirector: enr.impressumManagingDirector || '',\n      icebreakerSnippet: s.icebreakerSnippet || '',\n      slackAlert\n    }\n  };\n});"
+      },
+      "id": "merge-signal-contact-4",
+      "name": "5. Merge Buying Signal + Contact & Tech",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1460, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Buying Signals",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.publishedAt }}",
+            "Company": "={{ $json.company }}",
+            "Domain": "={{ $json.domain }}",
+            "Trigger": "={{ $json.primaryTrigger }}",
+            "Confidence": "={{ $json.signalConfidence }}",
+            "Headline": "={{ $json.headline }}",
+            "Publisher": "={{ $json.publisher }}",
+            "Real URL": "={{ $json.realUrl }}",
+            "Best Email": "={{ $json.bestEmail }}",
+            "LinkedIn": "={{ $json.linkedinUrl }}",
+            "Email Provider": "={{ $json.emailProvider }}",
+            "Tech Stack": "={{ $json.techStack }}",
+            "Icebreaker": "={{ $json.icebreakerSnippet }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-append-4",
+      "name": "Log Enriched Signal to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1740, 220]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "<YOUR_SLACK_CHANNEL_ID>",
+          "mode": "id"
+        },
+        "text": "={{ $json.slackAlert }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notify-4",
+      "name": "Alert Sales Channel in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1740, 420]
+    }
+  ],
+  "connections": {
+    "Weekday 8:30AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "1. Monitor Account Buying Signals (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Monitor Account Buying Signals (Apify)": {
+      "main": [
+        [
+          {
+            "node": "2. Keep Brand-New Buying Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Keep Brand-New Buying Triggers": {
+      "main": [
+        [
+          {
+            "node": "3. Deduplicate Triggered Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Deduplicate Triggered Domains": {
+      "main": [
+        [
+          {
+            "node": "4. Enrich Triggered Domains (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Enrich Triggered Domains (Apify)": {
+      "main": [
+        [
+          {
+            "node": "5. Merge Buying Signal + Contact & Tech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Merge Buying Signal + Contact & Tech": {
+      "main": [
+        [
+          {
+            "node": "Log Enriched Signal to Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert Sales Channel in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
