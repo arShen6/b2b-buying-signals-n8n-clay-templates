@@ -2,6 +2,8 @@
 
 Production-ready, zero-proxy **n8n workflow JSONs** and **Clay HTTP API column recipes** to automate B2B buying-signal monitoring and clean contact/tech-stack enrichment — with **no `$0.50` minimum spend**, **cross-run delta deduplication (`$0` on repeats)**, and **single-row micro-start pricing** built specifically for Clay & n8n webhooks.
 
+> 🔥 **Free Weekly Dataset (Nov 23–27, 2026)**: **[39 Newly Funded Operating Startups ($1M+ SEC Form D, ~$642M+ combined)](./reports/weekly-funded-startups-2026-11-27.md)** — hedge funds/SPVs/M&A swaps stripped out, deduplicated by CIK, with verified domains, tech stacks & public business role emails. 👉 **[Download CSV](./reports/weekly-funded-startups-2026-11-27.csv)**
+
 ---
 
 ## Included Templates (Import in 1 Click)
