@@ -1,0 +1,796 @@
+{
+  "name": "Multi-Source B2B Buying-Signal Engine (News + SEC Form D + Hiring -> Enrich -> AI Gmail Drafts)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Multi-Source B2B Buying-Signal & AI Outreach Engine\n\n### What this system does\nRuns every weekday at 8:30 AM to monitor **three independent B2B intent sources in parallel**, fuses and scores accounts (0–100 with a +25 multi-source convergence bonus), enriches triggered unique domains with clean emails, 65+ tech/Shopify signals, DNS/DMARC & DACH Impressum, and routes every lead into the right operational queue:\n\n- **Hot Leads (Score >= 65 + clean business email)** -> OpenAI writes a grounded 3-sentence cold email -> saves a **Gmail Draft** for human review + posts a **Slack sales alert** + logs to **Google Sheets (`Hot Leads`)**.\n- **WAF-Blocked / Missing Email (`needsBrowserFallback`)** -> routes only ~11% of domains into **`Claygent Fallback Queue`** (cutting browser/Claygent spend by ~89%).\n- **Warm Signals (Score < 65)** -> silently logged to **`Warm Signals`** without spamming Slack.\n- **API Errors / Empty Days** -> quiet days exit cleanly at `$0`; any Apify HTTP failure routes to **`Alert Ops on API Error (Slack)`**.\n\n### Prerequisites & Setup (3 minutes)\n1. **Apify API Token** (free `$5/mo` credits): Create one **HTTP Header Auth** credential (`Name: Authorization`, `Value: Bearer <YOUR_APIFY_API_TOKEN>`) and select it on all 4 Apify HTTP nodes.\n2. **OpenAI API Key**: Connect your OpenAI credential in **Draft Personalized Outreach (OpenAI)**.\n3. **Google Sheets, Gmail & Slack**: Connect credentials and replace `<YOUR_GOOGLE_SHEET_ID>` and `<YOUR_SLACK_CHANNEL_ID>` placeholders.\n4. **Customize in one place**: Edit **Configure ICP & Scoring Rules** to update target companies, minimum funding/salary thresholds, hot score cutoff, and your offer pitch.\n\n### Built-in Cost Safety\n- Every Apify request carries an explicit `maxTotalChargeUsd` budget cap (`$0.25`–`$0.50`) and `deduplicateAcrossRuns: true` (`$0` on previously seen news/filings/jobs).\n- Blocked/parked domains in the enricher are billed `$0` while still returning free DNS/MX/DMARC data.",
+        "height": 900,
+        "width": 520,
+        "color": 4
+      },
+      "id": "sticky-overview-flagship",
+      "name": "Sticky Note — Overview & Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, -40]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Schedule & Centralized ICP Config\n\nEdit your target ABM accounts, funding/salary thresholds, hot-lead cutoff, and sender pitch in ONE node.",
+        "height": 340,
+        "width": 500,
+        "color": 7
+      },
+      "id": "sticky-zone-1",
+      "name": "Sticky Note — Config",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 140]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Parallel 3-Source Buying Signal Radar\n\nQueries Google News (real decoded URLs), SEC Form D funded startups (no funds/SPVs), and $180K+ ATS hiring surges simultaneously. Failed API calls branch to Ops Slack alert.",
+        "height": 740,
+        "width": 320,
+        "color": 5
+      },
+      "id": "sticky-zone-2",
+      "name": "Sticky Note — Signal Radar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [620, -40]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Intent Scoring, Empty Guard & Domain Enrichment\n\nFuses all 3 streams, calculates a 0–100 intent score (+25 multi-source bonus), exits cleanly on quiet days, and batch-enriches unique triggered domains (3-bucket clean emails, 65+ tech signals, DNS/DMARC & DACH Impressum).",
+        "height": 500,
+        "width": 1160,
+        "color": 6
+      },
+      "id": "sticky-zone-3",
+      "name": "Sticky Note — Scoring & Enrichment",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [980, 80]
+    },
+    {
+      "parameters": {
+        "content": "## 4. 3-Way Lead Router, AI Outreach & Human-in-the-Loop Dispatch\n\nRoutes Hot Leads through OpenAI to create human-reviewed Gmail Drafts + Slack alerts + Sheets, sends WAF/missing-email domains to the Claygent fallback tab, and quietly archives Warm Signals.",
+        "height": 840,
+        "width": 1060,
+        "color": 3
+      },
+      "id": "sticky-zone-4",
+      "name": "Sticky Note — Routing & AI Dispatch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2180, -100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekday-flagship",
+      "name": "Weekday 8:30AM Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [140, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-companies",
+              "name": "targetCompanies",
+              "value": "={{ ['Databricks | databricks.com', 'Stripe | stripe.com', 'Ramp | ramp.com', 'Celonis | celonis.com', 'Linear | linear.app'] }}",
+              "type": "array"
+            },
+            {
+              "id": "cfg-min-funding",
+              "name": "minFundingUsd",
+              "value": 1000000,
+              "type": "number"
+            },
+            {
+              "id": "cfg-min-salary",
+              "name": "minSalaryUsd",
+              "value": 180000,
+              "type": "number"
+            },
+            {
+              "id": "cfg-hot-score",
+              "name": "hotScoreThreshold",
+              "value": 65,
+              "type": "number"
+            },
+            {
+              "id": "cfg-sender",
+              "name": "senderName",
+              "value": "Alex",
+              "type": "string"
+            },
+            {
+              "id": "cfg-offer",
+              "name": "offerSummary",
+              "value": "automated RevOps & outbound data infrastructure that cuts prospect research time by 80%",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-icp-config",
+      "name": "Configure ICP & Scoring Rules",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~google-news-scraper-b2b-signals/run-sync-get-dataset-items?maxTotalChargeUsd=0.50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ companies: $json.targetCompanies, maxItemsPerCompany: 3, triggerTypes: ['funding', 'acquisition', 'exec_hire', 'expansion', 'partnership'], onlyBuyingSignals: true, deduplicateAcrossRuns: true, dedupKey: 'n8n-flagship-news-v2', timeRange: '7d', decodeRealUrls: true, extractFullText: false }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-news-signals",
+      "name": "Fetch Google News Buying Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "onError": "continueErrorOutput",
+      "notesInFlow": true,
+      "notes": "Auth: HTTP Header Auth -> Authorization: Bearer <YOUR_APIFY_TOKEN>"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~sec-form-d-funding-leads/run-sync-get-dataset-items?maxTotalChargeUsd=0.50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ daysBack: 3, excludeInvestmentFunds: true, excludeRealEstateAndFinance: true, excludeBusinessCombinations: true, onlyCorporations: true, minSoldUsd: $json.minFundingUsd, enableDomainEnrichment: true, deduplicateAcrossRuns: true, dedupKey: 'n8n-flagship-formd-v2', maxResults: 20 }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-sec-formd",
+      "name": "Fetch SEC Form D Funded Startups",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "onError": "continueErrorOutput",
+      "notesInFlow": true,
+      "notes": "Reuse the same Apify HTTP Header Auth credential"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~tech-hiring-salary-radar/run-sync-get-dataset-items?maxTotalChargeUsd=0.25",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ categories: ['ai', 'devtools', 'fintech', 'security'], keywords: ['VP', 'Head of', 'Sales', 'AI', 'Security'], requireSalary: true, minSalaryUsd: $json.minSalaryUsd, postedWithinDays: 3, dateFilterField: 'postedAt', deduplicateAcrossRuns: true, dedupKey: 'n8n-flagship-hiring-v2', maxCompanies: 20, maxResults: 25 }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-hiring-radar",
+      "name": "Fetch High-Comp Tech Hiring Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 500],
+      "onError": "continueErrorOutput",
+      "notesInFlow": true,
+      "notes": "Reuse the same Apify HTTP Header Auth credential"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "merge-3-signals",
+      "name": "Combine All 3 Signal Streams",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Configure ICP & Scoring Rules').first().json;\nconst hotThreshold = Number(cfg.hotScoreThreshold || 65);\nconst rawItems = $input.all().map((i) => i.json).filter((r) => r && typeof r === 'object');\n\nconst cleanDomain = (val) => {\n  if (!val) return '';\n  return String(val)\n    .trim()\n    .toLowerCase()\n    .replace(/^https?:\\/\\//, '')\n    .replace(/^www\\./, '')\n    .split('/')[0]\n    .split('?')[0];\n};\n\nconst scoreByTrigger = {\n  funding: 45,\n  sec_form_d_funding: 50,\n  acquisition: 40,\n  exec_hire: 35,\n  expansion: 30,\n  partnership: 25,\n  product_launch: 20,\n  high_comp_hiring: 30,\n  layoffs: 20,\n  regulatory_lawsuit: 20\n};\n\nconst accounts = new Map();\n\nfor (const item of rawItems) {\n  let source = '';\n  let company = '';\n  let domain = '';\n  let trigger = '';\n  let headline = '';\n  let evidenceUrl = '';\n  let eventDate = '';\n  let contextNote = '';\n\n  if (item.articleId && item.primaryTrigger) {\n    source = 'google_news';\n    company = item.matchedCompany || '';\n    domain = cleanDomain(item.companyDomain || (Array.isArray(item.mentionedDomains) ? item.mentionedDomains[0] : ''));\n    trigger = String(item.primaryTrigger).toLowerCase();\n    headline = item.title || '';\n    evidenceUrl = item.url || item.googleNewsUrl || '';\n    eventDate = item.publishedAt || '';\n    contextNote = item.icebreakerSnippet || headline;\n  } else if (item.accessionNumber && item.companyName) {\n    source = 'sec_form_d';\n    company = item.companyName;\n    domain = cleanDomain(item.companyDomain || '');\n    trigger = 'sec_form_d_funding';\n    const sold = Number(item.totalAmountSoldUsd || 0).toLocaleString('en-US');\n    headline = `SEC Form D filing: ${item.companyName} raised $${sold} (${item.industryGroup || 'Tech'})`;\n    evidenceUrl = item.secFilingUrl || '';\n    eventDate = item.filingDate || '';\n    contextNote = `${headline}. Lead executive: ${item.leadExecutiveName || 'Founder'} (${item.leadExecutiveTitle || 'Executive'}).`;\n  } else if (item.jobKey && item.title) {\n    source = 'ats_hiring';\n    company = item.company || '';\n    domain = cleanDomain(item.companyDomain || '');\n    trigger = 'high_comp_hiring';\n    headline = `Hiring ${item.title} (${item.salarySummary || 'High-comp'})`;\n    evidenceUrl = item.jobUrl || '';\n    eventDate = item.postedAt || '';\n    const tags = Array.isArray(item.hiringTriggerTags) ? item.hiringTriggerTags.join(', ') : '';\n    contextNote = `${headline} at ${company}${tags ? ` [signals: ${tags}]` : ''}.`;\n  } else {\n    continue;\n  }\n\n  const accountKey = domain || company.toLowerCase().replace(/[^a-z0-9]+/g, '');\n  if (!accountKey) continue;\n\n  if (!accounts.has(accountKey)) {\n    accounts.set(accountKey, {\n      accountKey,\n      company: company || domain,\n      domain,\n      sources: [],\n      triggers: [],\n      headlines: [],\n      evidenceUrls: [],\n      latestDate: eventDate,\n      contextNotes: [],\n      baseScore: 0\n    });\n  }\n\n  const acc = accounts.get(accountKey);\n  if (!acc.company && company) acc.company = company;\n  if (!acc.domain && domain) acc.domain = domain;\n  if (!acc.sources.includes(source)) acc.sources.push(source);\n  if (!acc.triggers.includes(trigger)) {\n    acc.triggers.push(trigger);\n    acc.baseScore += (scoreByTrigger[trigger] || 20);\n  }\n  if (headline && acc.headlines.length < 3 && !acc.headlines.includes(headline)) acc.headlines.push(headline);\n  if (evidenceUrl && acc.evidenceUrls.length < 3 && !acc.evidenceUrls.includes(evidenceUrl)) acc.evidenceUrls.push(evidenceUrl);\n  if (contextNote && acc.contextNotes.length < 3) acc.contextNotes.push(contextNote);\n  if (eventDate && (!acc.latestDate || eventDate > acc.latestDate)) acc.latestDate = eventDate;\n}\n\nconst scoredAccounts = [...accounts.values()].map((acc) => {\n  const convergenceBonus = acc.sources.length >= 2 ? 25 : 0;\n  const domainBonus = acc.domain ? 15 : 0;\n  const intentScore = Math.min(100, acc.baseScore + convergenceBonus + domainBonus);\n  return {\n    ...acc,\n    intentScore,\n    hotScoreThreshold: hotThreshold,\n    primaryHeadline: acc.headlines[0] || '',\n    primaryUrl: acc.evidenceUrls[0] || '',\n    combinedContext: acc.contextNotes.join(' | ')\n  };\n}).sort((a, b) => b.intentScore - a.intentScore);\n\nconst uniqueDomains = [...new Set(scoredAccounts.map((a) => a.domain).filter(Boolean))];\n\nreturn [{\n  json: {\n    hasDomains: uniqueDomains.length > 0,\n    accountCount: scoredAccounts.length,\n    domains: uniqueDomains,\n    accounts: scoredAccounts\n  }\n}];"
+      },
+      "id": "code-score-dedup",
+      "name": "Normalize, Score & Deduplicate Accounts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-domains",
+              "leftValue": "={{ $json.hasDomains }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-new-signals",
+      "name": "Has New Signals to Enrich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {},
+      "id": "noop-quiet-day",
+      "name": "No New Signals Today (Stop)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1760, 440]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/vayneshen~b2b-domain-contact-tech-enricher/run-sync-get-dataset-items?memory=512&maxTotalChargeUsd=0.50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ domains: $json.domains, maxSubpagesPerDomain: 3, includeDachImpressum: true, includeSummary: true }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "apify-domain-enricher",
+      "name": "Enrich Unique Domains (Apify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 240],
+      "onError": "continueErrorOutput",
+      "notesInFlow": true,
+      "notes": "Reuse the same Apify HTTP Header Auth credential"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Configure ICP & Scoring Rules').first().json;\nconst scoredPayload = $('Normalize, Score & Deduplicate Accounts').first().json;\nconst accounts = Array.isArray(scoredPayload.accounts) ? scoredPayload.accounts : [];\n\nconst enrichedByDomain = new Map();\nfor (const item of $input.all()) {\n  const d = String(item.json?.domain || item.json?.inputDomain || '').trim().toLowerCase();\n  if (d) enrichedByDomain.set(d, item.json);\n}\n\nreturn accounts.map((acc) => {\n  const enr = acc.domain ? (enrichedByDomain.get(acc.domain) || {}) : {};\n  const bestEmail = String(enr.bestEmail || '').trim();\n  const needsFallback = Boolean(enr.needsBrowserFallback);\n  const techStack = Array.isArray(enr.techStackNames) ? enr.techStackNames.slice(0, 8).join(', ') : '';\n\n  let routingTier = 'warm_archive';\n  if (acc.intentScore >= acc.hotScoreThreshold && bestEmail) {\n    routingTier = 'hot_ai_draft';\n  } else if (needsFallback || (!bestEmail && acc.intentScore >= acc.hotScoreThreshold)) {\n    routingTier = 'manual_claygent_queue';\n  }\n\n  return {\n    json: {\n      latestDate: acc.latestDate || '',\n      company: acc.company,\n      domain: acc.domain || '',\n      intentScore: acc.intentScore,\n      routingTier,\n      sources: acc.sources.join(', '),\n      triggers: acc.triggers.join(', '),\n      primaryHeadline: acc.primaryHeadline,\n      primaryUrl: acc.primaryUrl,\n      combinedContext: acc.combinedContext,\n      bestEmail,\n      bestEmailRole: enr.bestEmailRole || '',\n      linkedinUrl: enr.linkedinUrl || '',\n      emailProvider: enr.emailProvider || '',\n      dmarcPolicy: enr.dmarcPolicy || '',\n      techStack,\n      impressumDirector: enr.impressumManagingDirector || '',\n      companySummary: enr.companySummary || '',\n      needsBrowserFallback: needsFallback,\n      enrichmentStatus: enr.enrichmentStatus || 'no_domain',\n      senderName: cfg.senderName || 'Alex',\n      offerSummary: cfg.offerSummary || ''\n    }\n  };\n});"
+      },
+      "id": "code-merge-enrichment",
+      "name": "Merge Scored Signals with Contacts & Tech",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 240]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route-hot-ai",
+                    "leftValue": "={{ $json.routingTier }}",
+                    "rightValue": "hot_ai_draft",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Hot Lead -> AI Draft"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route-fallback",
+                    "leftValue": "={{ $json.routingTier }}",
+                    "rightValue": "manual_claygent_queue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Claygent / Manual Queue"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "route-warm",
+                    "leftValue": "={{ $json.routingTier }}",
+                    "rightValue": "warm_archive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Warm Signal Archive"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-lead-tier",
+      "name": "Route by Lead Tier & Email Readiness",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [2260, 240]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "message": "You are a concise B2B account executive. Return ONLY a strict JSON object with keys \"subject\" (<= 7 words, no clickbait, no emojis) and \"body\" (3 crisp plain-text sentences under 75 words referencing the verified buying signal and tech stack, ending with a low-friction question). Never invent facts."
+            },
+            {
+              "role": "user",
+              "message": "={{ `Company: ${$json.company} (${$json.domain})\\nRecipient Email: ${$json.bestEmail} (${$json.bestEmailRole})\\nBuying Triggers: ${$json.triggers} (Intent Score: ${$json.intentScore}/100)\\nVerified Signal Context: ${$json.combinedContext}\\nDetected Tech Stack: ${$json.techStack || 'N/A'}\\nCompany Summary: ${$json.companySummary || 'N/A'}\\nSender Name: ${$json.senderName}\\nOur Offer: ${$json.offerSummary}` }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 300
+        }
+      },
+      "id": "openai-draft-email",
+      "name": "Draft Personalized Outreach (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [2540, 80],
+      "notesInFlow": true,
+      "notes": "Connect your OpenAI API credential"
+    },
+    {
+      "parameters": {
+        "jsCode": "const leads = $('Route by Lead Tier & Email Readiness').all(0);\nconst aiOutputs = $input.all();\n\nreturn aiOutputs.map((aiItem, idx) => {\n  const lead = (leads[idx] && leads[idx].json) ? leads[idx].json : {};\n  const raw = String(aiItem.json?.message?.content || aiItem.json?.text || '').trim();\n  let subject = `Quick note re: ${lead.company || 'your team'}`;\n  let body = `Hi team,\\n\\nSaw the recent update on ${lead.primaryHeadline || lead.company}. Given your current momentum, thought our ${lead.offerSummary || 'outbound workflow'} could save your team hours each week.\\n\\nWorth a quick look?\\n${lead.senderName || 'Alex'}`;\n\n  try {\n    const cleaned = raw.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```$/i, '').trim();\n    const parsed = JSON.parse(cleaned);\n    if (parsed.subject) subject = String(parsed.subject).trim();\n    if (parsed.body) body = String(parsed.body).trim();\n  } catch {\n    // Deterministic fallback already populated\n  }\n\n  const slackMessage = [\n    `*HOT B2B LEAD (${lead.intentScore}/100) — ${lead.company}* (${lead.domain})`,\n    `Triggers: ${lead.triggers} | Sources: ${lead.sources}`,\n    `Signal: ${lead.primaryHeadline}`,\n    lead.primaryUrl ? `Source URL: ${lead.primaryUrl}` : null,\n    `Contact: ${lead.bestEmail} (${lead.bestEmailRole || 'business'}) | Provider: ${lead.emailProvider || 'N/A'} | Tech: ${lead.techStack || 'N/A'}`,\n    `Gmail Draft Created -> Subject: \"${subject}\"`\n  ].filter(Boolean).join('\\n');\n\n  return {\n    json: {\n      ...lead,\n      emailSubject: subject,\n      emailBody: body,\n      slackMessage\n    }\n  };\n});"
+      },
+      "id": "code-parse-ai-draft",
+      "name": "Parse & Validate AI Email Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2780, 80]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "options": {
+          "sendTo": "={{ $json.bestEmail }}"
+        }
+      },
+      "id": "gmail-create-draft",
+      "name": "Create Gmail Draft (Human Review)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [3040, -40],
+      "notesInFlow": true,
+      "notes": "Saves draft for sales rep review before sending"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "<YOUR_SLACK_CHANNEL_ID>",
+          "mode": "id"
+        },
+        "text": "={{ $json.slackMessage }}",
+        "otherOptions": {}
+      },
+      "id": "slack-hot-lead",
+      "name": "Alert Sales Channel in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3040, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Hot Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.latestDate }}",
+            "Score": "={{ $json.intentScore }}",
+            "Company": "={{ $json.company }}",
+            "Domain": "={{ $json.domain }}",
+            "Triggers": "={{ $json.triggers }}",
+            "Sources": "={{ $json.sources }}",
+            "Headline": "={{ $json.primaryHeadline }}",
+            "Source URL": "={{ $json.primaryUrl }}",
+            "Best Email": "={{ $json.bestEmail }}",
+            "Tech Stack": "={{ $json.techStack }}",
+            "Draft Subject": "={{ $json.emailSubject }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-hot-leads",
+      "name": "Log Hot Lead to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3040, 240]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Claygent Fallback Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.latestDate }}",
+            "Score": "={{ $json.intentScore }}",
+            "Company": "={{ $json.company }}",
+            "Domain": "={{ $json.domain }}",
+            "Triggers": "={{ $json.triggers }}",
+            "Enrichment Status": "={{ $json.enrichmentStatus }}",
+            "Needs Browser Fallback": "={{ $json.needsBrowserFallback }}",
+            "LinkedIn": "={{ $json.linkedinUrl }}",
+            "Email Provider": "={{ $json.emailProvider }}",
+            "Source URL": "={{ $json.primaryUrl }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-fallback-queue",
+      "name": "Queue Blocked Leads for Claygent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2640, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "<YOUR_GOOGLE_SHEET_ID>",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Warm Signals",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.latestDate }}",
+            "Score": "={{ $json.intentScore }}",
+            "Company": "={{ $json.company }}",
+            "Domain": "={{ $json.domain }}",
+            "Triggers": "={{ $json.triggers }}",
+            "Headline": "={{ $json.primaryHeadline }}",
+            "Best Email": "={{ $json.bestEmail }}",
+            "Source URL": "={{ $json.primaryUrl }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-warm-archive",
+      "name": "Archive Warm Signal to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2640, 580]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "<YOUR_OPS_SLACK_CHANNEL_ID>",
+          "mode": "id"
+        },
+        "text": "={{ ':warning: B2B Buying-Signal Pipeline API error detected: ' + ($json.error?.message || $json.message || 'Check Apify token or rate limits in n8n execution log.') }}",
+        "otherOptions": {}
+      },
+      "id": "slack-ops-error",
+      "name": "Alert Ops on API Error (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1280, 720]
+    }
+  ],
+  "connections": {
+    "Weekday 8:30AM Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configure ICP & Scoring Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure ICP & Scoring Rules": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google News Buying Signals",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch SEC Form D Funded Startups",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch High-Comp Tech Hiring Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google News Buying Signals": {
+      "main": [
+        [
+          {
+            "node": "Combine All 3 Signal Streams",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Ops on API Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch SEC Form D Funded Startups": {
+      "main": [
+        [
+          {
+            "node": "Combine All 3 Signal Streams",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Alert Ops on API Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch High-Comp Tech Hiring Signals": {
+      "main": [
+        [
+          {
+            "node": "Combine All 3 Signal Streams",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "Alert Ops on API Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine All 3 Signal Streams": {
+      "main": [
+        [
+          {
+            "node": "Normalize, Score & Deduplicate Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize, Score & Deduplicate Accounts": {
+      "main": [
+        [
+          {
+            "node": "Has New Signals to Enrich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Signals to Enrich?": {
+      "main": [
+        [
+          {
+            "node": "Enrich Unique Domains (Apify)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No New Signals Today (Stop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Unique Domains (Apify)": {
+      "main": [
+        [
+          {
+            "node": "Merge Scored Signals with Contacts & Tech",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Ops on API Error (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Scored Signals with Contacts & Tech": {
+      "main": [
+        [
+          {
+            "node": "Route by Lead Tier & Email Readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Lead Tier & Email Readiness": {
+      "main": [
+        [
+          {
+            "node": "Draft Personalized Outreach (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue Blocked Leads for Claygent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Archive Warm Signal to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Personalized Outreach (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate AI Email Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate AI Email Draft": {
+      "main": [
+        [
+          {
+            "node": "Create Gmail Draft (Human Review)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert Sales Channel in Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Hot Lead to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
